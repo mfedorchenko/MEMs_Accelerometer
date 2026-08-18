@@ -13,12 +13,18 @@ class MotionViewModel: ObservableObject {
     @Published var xSamples: [Double] = []
     @Published var ySamples: [Double] = []
     @Published var zSamples: [Double] = []
+    
+    // temporary arrays to fill with 10 Data Points which will be directly sent at once to the graph
+    private var xSamplesTemp: [Double] = []
+    private var ySamplesTemp: [Double] = []
+    private var zSamplesTemp: [Double] = []
 
     @Published var alarm: String = ""
     @Published var isActive: Bool = false
 
     private let staWindow = 10
     private let ltaWindow = 50
+    
     // how many measure points are shown in the array
     private let maxSamples = 500
 
@@ -28,7 +34,7 @@ class MotionViewModel: ObservableObject {
             return
         }
 
-        motionManager.accelerometerUpdateInterval = 0.05
+        motionManager.accelerometerUpdateInterval = 0.03
 
         motionManager.startAccelerometerUpdates(to: .main) {
             [weak self] data, error in
@@ -63,10 +69,21 @@ class MotionViewModel: ObservableObject {
             //            }
 
             // showing data from all 3 axis on the graph
-            self.xSamples.append(x)
-            self.ySamples.append(y)
-            self.zSamples.append(z)
             
+            // adding temporary array of 10-15 Data points which will be sent to the graph
+            xSamplesTemp.append(x)
+            ySamplesTemp.append(y)
+            zSamplesTemp.append(z)
+            
+            if self.xSamplesTemp.count >= 5 {
+                self.xSamples.append(contentsOf: xSamplesTemp)
+                self.ySamples.append(contentsOf: ySamplesTemp)
+                self.zSamples.append(contentsOf: zSamplesTemp)
+                xSamplesTemp.removeAll()
+                ySamplesTemp.removeAll()
+                zSamplesTemp.removeAll()
+            }
+
             // Limit the amount of data
             if self.xSamples.count > self.maxSamples {
                 self.xSamples.removeFirst(
@@ -105,7 +122,7 @@ class MotionViewModel: ObservableObject {
                 )
                 let ratio = sta / lta
 
-                if ratio > 3 {
+                if ratio > 4 {
                     self.alarm = "Earthquake detected"
                     print("Earthquake detected")
                 }
@@ -141,10 +158,10 @@ struct ContentView: View {
                     { index, value in
                         LineMark(
                             x: .value("Index", index),
-                            y: .value("Beschleunigung", value),
-                            series: .value("Achse", "X")
+                            y: .value("Acceleration", value),
+                            series: .value("Axis", "X")
                         )
-                        .foregroundStyle(by: .value("Achse", "X"))
+                        .foregroundStyle(by: .value("Axis", "X"))
                         .interpolationMethod(.linear)
                     }
                     // Y Graph
@@ -152,10 +169,10 @@ struct ContentView: View {
                     { index, value in
                         LineMark(
                             x: .value("Index", index),
-                            y: .value("Beschleunigung", value),
-                            series: .value("Achse", "Y")
+                            y: .value("Acceleration", value),
+                            series: .value("Axis", "Y")
                         )
-                        .foregroundStyle(by: .value("Achse", "Y"))
+                        .foregroundStyle(by: .value("Axis", "Y"))
                         .interpolationMethod(.linear)
                     }
                     // Z Graph
@@ -163,10 +180,10 @@ struct ContentView: View {
                     { index, value in
                         LineMark(
                             x: .value("Index", index),
-                            y: .value("Beschleunigung", value),
-                            series: .value("Achse", "Z")
+                            y: .value("Acceleration", value),
+                            series: .value("Axis", "Z")
                         )
-                        .foregroundStyle(by: .value("Achse", "Z"))
+                        .foregroundStyle(by: .value("Axis", "Z"))
                         .interpolationMethod(.linear)
                     }
                 }
