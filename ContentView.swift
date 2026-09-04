@@ -10,14 +10,14 @@ class MotionViewModel: ObservableObject {
     // This one is needed to calculate the posible earthquake, contains acceleration
     @Published var samples: [Double] = []
     // Those 3 are needed to just show data of 3 axis on the web display, contain x,y,z raw data
-    @Published var xSamples: [Double?] = []
-    @Published var ySamples: [Double?] = []
-    @Published var zSamples: [Double?] = []
+    @Published var xSamples: [SamplePoint?] = []
+    @Published var ySamples: [SamplePoint?] = []
+    @Published var zSamples: [SamplePoint?] = []
     
     // temporary arrays to fill with 10 Data Points which will be directly sent at once to the graph
-    private var xSamplesTemp: [Double?] = []
-    private var ySamplesTemp: [Double?] = []
-    private var zSamplesTemp: [Double?] = []
+    private var xSamplesTemp: [SamplePoint?] = []
+    private var ySamplesTemp: [SamplePoint?] = []
+    private var zSamplesTemp: [SamplePoint?] = []
 
     @Published var alarm: String = ""
     @Published var isActive: Bool = false
@@ -77,9 +77,18 @@ class MotionViewModel: ObservableObject {
             // showing data from all 3 axis on the graph
             
             // adding temporary array of 10-15 Data points which will be sent to the graph
-            self.xSamplesTemp.append(x)
-            self.ySamplesTemp.append(y)
-            self.zSamplesTemp.append(z)
+            
+            self.xSamplesTemp.append(
+                SamplePoint(
+                    timestamp: Date(), value: x
+                )
+            )
+            self.ySamplesTemp.append(
+                SamplePoint(timestamp: Date(), value: y)
+            )
+            self.zSamplesTemp.append(
+                SamplePoint(timestamp: Date(), value: z)
+            )
             
             if self.xSamplesTemp.count >= 4 {
                 self.xSamples.append(contentsOf: self.xSamplesTemp)
@@ -149,6 +158,11 @@ class MotionViewModel: ObservableObject {
     }
 }
 
+struct SamplePoint {
+    let timestamp: Date
+    let value: Double
+}
+
 // MARK: - View
 struct ContentView: View {
     // @StateObject keeps the ViewModel alive throughout the entire lifecycle of the View
@@ -160,11 +174,11 @@ struct ContentView: View {
                 Spacer()
                 Chart {
                     // X Graph
-                    ForEach(Array(viewModel.xSamples.enumerated()), id: \.offset) { index, value in
-                        if let value {
+                    ForEach(Array(viewModel.xSamples.enumerated()), id: \.offset) { index, point in
+                        if let point {
                             LineMark(
-                            x: .value("Index", index),
-                            y: .value("Acceleration", value),
+                                x: .value("Time", index),
+                                y: .value("Acceleration", point.value),
                             series: .value("Axis", "X")
                             )
                         .foregroundStyle(by: .value("Axis", "X"))
@@ -172,11 +186,11 @@ struct ContentView: View {
                         }
                     }
                     // Y Graph
-                    ForEach(Array(viewModel.ySamples.enumerated()), id: \.offset) { index, value in
-                        if let value {
+                    ForEach(Array(viewModel.ySamples.enumerated()), id: \.offset) { index, point in
+                        if let point {
                             LineMark(
-                            x: .value("Index", index),
-                            y: .value("Acceleration", value),
+                                x: .value("Time", index),
+                                y: .value("Acceleration", point.value),
                             series: .value("Axis", "Y")
                             )
                         .foregroundStyle(by: .value("Axis", "Y"))
@@ -184,11 +198,11 @@ struct ContentView: View {
                         }
                     }
                     // Z Graph
-                    ForEach(Array(viewModel.zSamples.enumerated()), id: \.offset) { index, value in
-                        if let value {
+                    ForEach(Array(viewModel.zSamples.enumerated()), id: \.offset) { index , point in
+                        if let point {
                             LineMark(
-                            x: .value("Index", index),
-                            y: .value("Acceleration", value),
+                                x: .value("Time", index),
+                                y: .value("Acceleration", point.value),
                             series: .value("Axis", "Z")
                             )
                         .foregroundStyle(by: .value("Axis", "Z"))
