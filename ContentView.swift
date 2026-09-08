@@ -7,26 +7,20 @@ import SwiftUI
 // In SwiftUI, this is all handled using an ObservableObject class with @Published properties
 class MotionViewModel: ObservableObject {
     private let motionManager = CMMotionManager()
-    // This one is needed to calculate the posible earthquake, contains acceleration
-    @Published var samples: [Double] = []
-    // Those 3 are needed to just show data of 3 axis on the web display, contain x,y,z raw data
+    // allSamples contains raw x, y and z values displayed in the chart
     @Published var allSamples: [SamplePoint?] = []
-    
-    // temporary arrays to fill with 10 Data Points which will be directly sent at once to the graph
+    // temporary buffer used to collect 4 samples before updating the chart
     private var valueSamplesTemp: [SamplePoint] = []
     
     @Published var alarm: String = ""
     @Published var isActive: Bool = false
-    
-    private let staWindow = 10
-    private let ltaWindow = 50
     
     // how many measure points are shown in the array
     private let maxSamples = 500
     
     private let sampleInterval: TimeInterval = 0.05
 
-    
+    // initialize with nil values so the chart starts compressed
     init() {
 
         let now = Date()
@@ -46,15 +40,13 @@ class MotionViewModel: ObservableObject {
 
     func start() {
         motionManager.stopAccelerometerUpdates()
-        
+        // when application starts, data should be showed again (ON/OFF Button)
         stopNoDataTimer()
         
         guard motionManager.isAccelerometerAvailable else {
-            alarm = "Accelerometer nicht verfügbar"
+            alarm = "Accelerometer not available"
             return
         }
-        
-        
 
         motionManager.accelerometerUpdateInterval = sampleInterval
 
@@ -66,51 +58,24 @@ class MotionViewModel: ObservableObject {
             let y = data.acceleration.y
             let z = data.acceleration.z
             
-            // this code is for showing only the acceleration on the graph, not all 3 axis separated
-            //
-            //            // when mobile is lying: magnitude = 1, acceleration = |1 - 1| = 0 (Passive state)
-            //            // if the phone is dropped or shaken: the acceleration deviates from 1g
-            //            let magnitude = sqrt(x * x + y * y + z * z)
-            //            let acceleration = abs(magnitude - 1)
-            //
-            //            // Limit the amount of data
-            //            self.samples.append(acceleration)
-            //            if self.samples.count > self.maxSamples {
-            //                self.samples.removeFirst(self.samples.count - self.maxSamples)
-            //            }
-            //
-            //            // check first, if there're enough data for lta
-            //            if self.samples.count >= self.ltaWindow {
-            //                let sta = self.average(Array(self.samples.suffix(self.staWindow)))
-            //                let lta = self.average(Array(self.samples.suffix(self.ltaWindow)))
-            //                let ratio = sta / lta
-            //
-            //                if ratio > 3 {
-            //                    self.alarm = "Earthquake detected"
-            //                    print("Earthquake detected")
-            //                }
-            //            }
-
             // showing data from all 3 axis on the graph
-            
-            // adding temporary array of 10-15 Data points which will be sent to the graph
-            
+            // adding temporary array of some data points which will be sent to the graph
             self.valueSamplesTemp.append(
                 SamplePoint(
                     timestamp: Date(), xValue: x, yValue: y, zValue: z
                 )
             )
-            
+            // update chart every 4 samples
             if self.valueSamplesTemp.count >= 4 {
                 self.allSamples.append(contentsOf: self.valueSamplesTemp)
                 self.valueSamplesTemp.removeAll()
             }
-            
+            // keep only the most recent (500) samples visible in the chart
             if self.allSamples.count > self.maxSamples {
                 self.allSamples.removeFirst(self.allSamples.count - self.maxSamples)
             }
             
-            // 5 Minutes storage
+            // 5 Minutes storage (stil on ToDo list!)
             let fiveMinutesAgo = Date().addingTimeInterval(-300)
 
             self.allSamples.removeAll { point in
@@ -120,40 +85,16 @@ class MotionViewModel: ObservableObject {
 
                 return point.timestamp < fiveMinutesAgo
             }
-
-            // when mobile is lying: magnitude = 1, acceleration = |1 - 1| = 0 (Passive state)
-            // if the phone is dropped or shaken: the acceleration deviates from 1g
-            let magnitude = sqrt(x * x + y * y + z * z)
-            let acceleration = abs(magnitude - 1)
-
-            // Limit the amount of data
-            self.samples.append(acceleration)
-            if self.samples.count > self.maxSamples {
-                self.samples.removeFirst(self.samples.count - self.maxSamples)
-            }
-
-            // check first, if there're enough data for lta
-            if self.samples.count >= self.ltaWindow {
-                let sta = self.average(
-                    Array(self.samples.suffix(self.staWindow))
-                )
-                let lta = self.average(
-                    Array(self.samples.suffix(self.ltaWindow))
-                )
-                let ratio = sta / lta
-
-                if ratio > 4 {
-                    self.alarm = "Earthquake detected"
-                    print("Earthquake detected")
-                }
-            }
         }
 
         isActive = true
     }
     
+    // generates placeholder samples while data acquisition is paused.
+    // this preserves the timeline so gaps remain visible in the chart.
     private var noDataTimer: Timer?
-    
+
+    // continuously append samples with nil values while recording is stopped.
     func startNoDataTimer() {
         noDataTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
             self.allSamples.append(
@@ -163,12 +104,14 @@ class MotionViewModel: ObservableObject {
             )
         }
     }
-    
+
+    // stop generating placeholder samples and resume normal data collection.
     func stopNoDataTimer() {
         noDataTimer?.invalidate()
         noDataTimer = nil
     }
-    
+
+    // stop accelerometer updates but continue advancing time in the chart.
     func pressOFF() {
         motionManager.stopAccelerometerUpdates()
         startNoDataTimer()
@@ -181,6 +124,7 @@ class MotionViewModel: ObservableObject {
     }
 }
 
+// data type
 struct SamplePoint {
     let timestamp: Date
     let xValue: Double?
