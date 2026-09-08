@@ -10,37 +10,53 @@ class MotionViewModel: ObservableObject {
     // This one is needed to calculate the posible earthquake, contains acceleration
     @Published var samples: [Double] = []
     // Those 3 are needed to just show data of 3 axis on the web display, contain x,y,z raw data
-    @Published var xSamples: [SamplePoint?] = []
-    @Published var ySamples: [SamplePoint?] = []
-    @Published var zSamples: [SamplePoint?] = []
+    @Published var allSamples: [SamplePoint?] = []
     
     // temporary arrays to fill with 10 Data Points which will be directly sent at once to the graph
-    private var xSamplesTemp: [SamplePoint?] = []
-    private var ySamplesTemp: [SamplePoint?] = []
-    private var zSamplesTemp: [SamplePoint?] = []
-
+    private var valueSamplesTemp: [SamplePoint] = []
+    
     @Published var alarm: String = ""
     @Published var isActive: Bool = false
-
+    
     private let staWindow = 10
     private let ltaWindow = 50
     
     // how many measure points are shown in the array
     private let maxSamples = 500
     
+    private let sampleInterval: TimeInterval = 0.05
+
+    
     init() {
-        xSamples = Array(repeating: nil, count: maxSamples)
-        ySamples = Array(repeating: nil, count: maxSamples)
-        zSamples = Array(repeating: nil, count: maxSamples)
+
+        let now = Date()
+
+        allSamples = (0..<maxSamples).map { index in
+
+            let offset = Double(maxSamples - index) * 0.05
+
+            return SamplePoint(
+                timestamp: now.addingTimeInterval(-offset),
+                xValue: nil,
+                yValue: nil,
+                zValue: nil
+            )
+        }
     }
 
     func start() {
+        motionManager.stopAccelerometerUpdates()
+        
+        stopNoDataTimer()
+        
         guard motionManager.isAccelerometerAvailable else {
             alarm = "Accelerometer nicht verfügbar"
             return
         }
+        
+        
 
-        motionManager.accelerometerUpdateInterval = 0.05
+        motionManager.accelerometerUpdateInterval = sampleInterval
 
         motionManager.startAccelerometerUpdates(to: .main) {
             [weak self] data, error in
@@ -49,6 +65,7 @@ class MotionViewModel: ObservableObject {
             let x = data.acceleration.x
             let y = data.acceleration.y
             let z = data.acceleration.z
+            
             // this code is for showing only the acceleration on the graph, not all 3 axis separated
             //
             //            // when mobile is lying: magnitude = 1, acceleration = |1 - 1| = 0 (Passive state)
@@ -78,42 +95,30 @@ class MotionViewModel: ObservableObject {
             
             // adding temporary array of 10-15 Data points which will be sent to the graph
             
-            self.xSamplesTemp.append(
+            self.valueSamplesTemp.append(
                 SamplePoint(
-                    timestamp: Date(), value: x
+                    timestamp: Date(), xValue: x, yValue: y, zValue: z
                 )
-            )
-            self.ySamplesTemp.append(
-                SamplePoint(timestamp: Date(), value: y)
-            )
-            self.zSamplesTemp.append(
-                SamplePoint(timestamp: Date(), value: z)
             )
             
-            if self.xSamplesTemp.count >= 4 {
-                self.xSamples.append(contentsOf: self.xSamplesTemp)
-                self.ySamples.append(contentsOf: self.ySamplesTemp)
-                self.zSamples.append(contentsOf: self.zSamplesTemp)
-                self.xSamplesTemp.removeAll()
-                self.ySamplesTemp.removeAll()
-                self.zSamplesTemp.removeAll()
+            if self.valueSamplesTemp.count >= 4 {
+                self.allSamples.append(contentsOf: self.valueSamplesTemp)
+                self.valueSamplesTemp.removeAll()
             }
+            
+            if self.allSamples.count > self.maxSamples {
+                self.allSamples.removeFirst(self.allSamples.count - self.maxSamples)
+            }
+            
+            // 5 Minutes storage
+            let fiveMinutesAgo = Date().addingTimeInterval(-300)
 
-            // Limit the amount of data
-            if self.xSamples.count > self.maxSamples {
-                self.xSamples.removeFirst(
-                    self.xSamples.count - self.maxSamples
-                )
-            }
-            if self.ySamples.count > self.maxSamples {
-                self.ySamples.removeFirst(
-                    self.ySamples.count - self.maxSamples
-                )
-            }
-            if self.zSamples.count > self.maxSamples {
-                self.zSamples.removeFirst(
-                    self.zSamples.count - self.maxSamples
-                )
+            self.allSamples.removeAll { point in
+                guard let point = point else {
+                    return false
+                }
+
+                return point.timestamp < fiveMinutesAgo
             }
 
             // when mobile is lying: magnitude = 1, acceleration = |1 - 1| = 0 (Passive state)
@@ -146,12 +151,30 @@ class MotionViewModel: ObservableObject {
 
         isActive = true
     }
-
-    func stop() {
+    
+    private var noDataTimer: Timer?
+    
+    func startNoDataTimer() {
+        noDataTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
+            self.allSamples.append(
+                SamplePoint(
+                    timestamp: Date(), xValue: nil, yValue: nil, zValue: nil
+                )
+            )
+        }
+    }
+    
+    func stopNoDataTimer() {
+        noDataTimer?.invalidate()
+        noDataTimer = nil
+    }
+    
+    func pressOFF() {
         motionManager.stopAccelerometerUpdates()
+        startNoDataTimer()
         isActive = false
     }
-
+    
     private func average(_ arr: [Double]) -> Double {
         guard !arr.isEmpty else { return 0 }
         return arr.reduce(0, +) / Double(arr.count)
@@ -160,7 +183,9 @@ class MotionViewModel: ObservableObject {
 
 struct SamplePoint {
     let timestamp: Date
-    let value: Double
+    let xValue: Double?
+    let yValue: Double?
+    let zValue: Double?
 }
 
 // MARK: - View
@@ -174,11 +199,11 @@ struct ContentView: View {
                 Spacer()
                 Chart {
                     // X Graph
-                    ForEach(Array(viewModel.xSamples.enumerated()), id: \.offset) { index, point in
-                        if let point {
+                    ForEach(Array(viewModel.allSamples.enumerated()), id: \.offset) { index, point in
+                        if let point, let x = point.xValue {
                             LineMark(
                                 x: .value("Time", index),
-                                y: .value("Acceleration", point.value),
+                                y: .value("Acceleration", x),
                             series: .value("Axis", "X")
                             )
                         .foregroundStyle(by: .value("Axis", "X"))
@@ -186,11 +211,11 @@ struct ContentView: View {
                         }
                     }
                     // Y Graph
-                    ForEach(Array(viewModel.ySamples.enumerated()), id: \.offset) { index, point in
-                        if let point {
+                    ForEach(Array(viewModel.allSamples.enumerated()), id: \.offset) { index, point in
+                        if let point, let y = point.yValue {
                             LineMark(
                                 x: .value("Time", index),
-                                y: .value("Acceleration", point.value),
+                                y: .value("Acceleration", y),
                             series: .value("Axis", "Y")
                             )
                         .foregroundStyle(by: .value("Axis", "Y"))
@@ -198,11 +223,11 @@ struct ContentView: View {
                         }
                     }
                     // Z Graph
-                    ForEach(Array(viewModel.zSamples.enumerated()), id: \.offset) { index , point in
-                        if let point {
+                    ForEach(Array(viewModel.allSamples.enumerated()), id: \.offset) { index, point in
+                        if let point, let z = point.zValue {
                             LineMark(
                                 x: .value("Time", index),
-                                y: .value("Acceleration", point.value),
+                                y: .value("Acceleration", z),
                             series: .value("Axis", "Z")
                             )
                         .foregroundStyle(by: .value("Axis", "Z"))
@@ -230,7 +255,7 @@ struct ContentView: View {
             }
             // button to toggle the projecting of data on the graph
             Button(action: {
-                viewModel.isActive ? viewModel.stop() : viewModel.start()
+                viewModel.isActive ? viewModel.pressOFF() : viewModel.start()
             }) {
                 Text(viewModel.isActive ? "On" : "Off")
                     .foregroundColor(.white)
@@ -245,8 +270,10 @@ struct ContentView: View {
             viewModel.start()
         }
         .onDisappear {
-            viewModel.stop()
+            viewModel.pressOFF()
         }
+        
+        
     }
 }
 
