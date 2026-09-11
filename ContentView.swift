@@ -16,18 +16,32 @@ class MotionViewModel: ObservableObject {
     @Published var isActive: Bool = false
     
     // how many measure points are shown in the array
-    private let maxSamples = 500
+    private let maxSamples = 600
     
     private let sampleInterval: TimeInterval = 0.05
+    
+    private var noDataTimer: Timer?
+    private var offTimestamp: Date
+    
+    var graphSamples: [SamplePoint] {
+        let thirtySecondsAgo = Date().addingTimeInterval(-30)
+
+        return allSamples.compactMap{$0}.filter {
+            $0.timestamp >= thirtySecondsAgo
+        }
+    }
 
     // initialize with nil values so the chart starts compressed
     init() {
 
         let now = Date()
+        // initializing data for later use
+        self.noDataTimer = nil
+        self.offTimestamp = Date()
 
         allSamples = (0..<maxSamples).map { index in
 
-            let offset = Double(maxSamples - index) * 0.05
+            let offset = Double(maxSamples - index) * sampleInterval
 
             return SamplePoint(
                 timestamp: now.addingTimeInterval(-offset),
@@ -41,6 +55,7 @@ class MotionViewModel: ObservableObject {
     func start() {
         motionManager.stopAccelerometerUpdates()
         // when application starts, data should be showed again (ON/OFF Button)
+        print("start")
         stopNoDataTimer()
         
         guard motionManager.isAccelerometerAvailable else {
@@ -53,7 +68,7 @@ class MotionViewModel: ObservableObject {
         motionManager.startAccelerometerUpdates(to: .main) {
             [weak self] data, error in
             guard let self = self, let data = data else { return }
-
+            
             let x = data.acceleration.x
             let y = data.acceleration.y
             let z = data.acceleration.z
@@ -69,22 +84,26 @@ class MotionViewModel: ObservableObject {
             if self.valueSamplesTemp.count >= 4 {
                 self.allSamples.append(contentsOf: self.valueSamplesTemp)
                 self.valueSamplesTemp.removeAll()
-            }
-            // keep only the most recent (500) samples visible in the chart
-            if self.allSamples.count > self.maxSamples {
-                self.allSamples.removeFirst(self.allSamples.count - self.maxSamples)
+                
+                // 5 Minutes storage (stil on ToDo list!)
+                let fiveMinutesAgo = Date().addingTimeInterval(-300)
+                
+                self.allSamples.removeAll { point in
+                    guard let point = point else {
+                        return false
+                    }
+                    
+                    return point.timestamp < fiveMinutesAgo
+                }
             }
             
-            // 5 Minutes storage (stil on ToDo list!)
-            let fiveMinutesAgo = Date().addingTimeInterval(-300)
 
-            self.allSamples.removeAll { point in
-                guard let point = point else {
-                    return false
-                }
-
-                return point.timestamp < fiveMinutesAgo
-            }
+            
+            // keep only the most recent (500) samples visible in the chart
+            // if self.allSamples.count > self.maxSamples {
+            //     self.allSamples.removeFirst(self.allSamples.count - self.maxSamples)
+            //}
+            
         }
 
         isActive = true
@@ -92,21 +111,42 @@ class MotionViewModel: ObservableObject {
     
     // generates placeholder samples while data acquisition is paused.
     // this preserves the timeline so gaps remain visible in the chart.
-    private var noDataTimer: Timer?
 
+    
     // continuously append samples with nil values while recording is stopped.
     func startNoDataTimer() {
-        noDataTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
-            self.allSamples.append(
-                SamplePoint(
-                    timestamp: Date(), xValue: nil, yValue: nil, zValue: nil
-                )
-            )
-        }
+        offTimestamp = Date()
     }
 
     // stop generating placeholder samples and resume normal data collection.
     func stopNoDataTimer() {
+        let now = Date()
+        let offset = now.timeIntervalSince(self.offTimestamp)
+        print("offset: ", offset)
+        let count = Int(offset / self.sampleInterval)
+        print("count: ", count)
+
+        for index in 0..<count {
+            let timestamp = self.offTimestamp.addingTimeInterval(
+                Double(index) * self.sampleInterval
+            )
+
+            self.allSamples.append(
+                SamplePoint(
+                    timestamp: timestamp,
+                    xValue: nil,
+                    yValue: nil,
+                    zValue: nil
+                )
+            )
+        }
+        print("Added nil sample")
+    
+        let thirtySecondsAgo = Date().addingTimeInterval(-30)
+        self.allSamples = self.allSamples.compactMap{$0}.filter {
+            $0.timestamp >= thirtySecondsAgo
+        }
+
         noDataTimer?.invalidate()
         noDataTimer = nil
     }
@@ -143,8 +183,8 @@ struct ContentView: View {
                 Spacer()
                 Chart {
                     // X Graph
-                    ForEach(Array(viewModel.allSamples.enumerated()), id: \.offset) { index, point in
-                        if let point, let x = point.xValue {
+                    ForEach(Array(viewModel.graphSamples.enumerated()), id: \.offset) { index, point in
+                        if let x = point.xValue {
                             LineMark(
                                 x: .value("Time", index),
                                 y: .value("Acceleration", x),
@@ -155,8 +195,8 @@ struct ContentView: View {
                         }
                     }
                     // Y Graph
-                    ForEach(Array(viewModel.allSamples.enumerated()), id: \.offset) { index, point in
-                        if let point, let y = point.yValue {
+                    ForEach(Array(viewModel.graphSamples.enumerated()), id: \.offset) { index, point in
+                        if let y = point.yValue {
                             LineMark(
                                 x: .value("Time", index),
                                 y: .value("Acceleration", y),
@@ -167,8 +207,8 @@ struct ContentView: View {
                         }
                     }
                     // Z Graph
-                    ForEach(Array(viewModel.allSamples.enumerated()), id: \.offset) { index, point in
-                        if let point, let z = point.zValue {
+                    ForEach(Array(viewModel.graphSamples.enumerated()), id: \.offset) { index, point in
+                        if let z = point.zValue {
                             LineMark(
                                 x: .value("Time", index),
                                 y: .value("Acceleration", z),
