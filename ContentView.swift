@@ -20,11 +20,16 @@ class MotionViewModel: ObservableObject {
     
     private let sampleInterval: TimeInterval = 0.05
     
+    private let timeIntervalGraph: Double = -30
+    private let timeIntervalStorage: Double = -300
+    
+    private let refreshRate = 2
+    
     private var noDataTimer: Timer?
     private var offTimestamp: Date
     
     var graphSamples: [SamplePoint] {
-        let thirtySecondsAgo = Date().addingTimeInterval(-30)
+        let thirtySecondsAgo = Date().addingTimeInterval(timeIntervalGraph)
 
         return allSamples.compactMap{$0}.filter {
             $0.timestamp >= thirtySecondsAgo
@@ -81,12 +86,12 @@ class MotionViewModel: ObservableObject {
                 )
             )
             // update chart every 4 samples
-            if self.valueSamplesTemp.count >= 4 {
+            if self.valueSamplesTemp.count >= refreshRate{
                 self.allSamples.append(contentsOf: self.valueSamplesTemp)
                 self.valueSamplesTemp.removeAll()
                 
-                // 5 Minutes storage (stil on ToDo list!)
-                let fiveMinutesAgo = Date().addingTimeInterval(-300)
+                // 5 Minutes storage
+                let fiveMinutesAgo = Date().addingTimeInterval(timeIntervalStorage)
                 
                 self.allSamples.removeAll { point in
                     guard let point = point else {
@@ -226,7 +231,7 @@ struct ContentView: View {
                 ])
                 .chartLegend(position: .bottom, alignment: .center)
                 .chartXAxis(.hidden)
-                .frame(height: 220)
+                .frame(height: 300)
                 .padding()
                 .overlay(
                     Rectangle().stroke(Color.black, lineWidth: 1)
